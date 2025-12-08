@@ -21,7 +21,7 @@ Part A: Training from scratch
 Question 1 (5 Marks)
 Build a small CNN model consisting of 555 convolution layers. Each convolution layer would be followed by an activation and a max-pooling layer.
 
-After 555 such conv-activation-maxpool blocks, you should have one dense layer followed by the output layer containing 101010 neurons (111 for each of the 101010 classes). The input layer should be compatible with the images in the iNaturalist dataset dataset.
+After 5 such conv-activation-maxpool blocks, you should have one dense layer followed by the output layer containing 101010 neurons (1 for each of the 10 classes). The input layer should be compatible with the images in the iNaturalist dataset dataset.
 
 The code should be flexible such that the number of filters, size of filters, and activation function of the convolution layers and dense layers can be changed. You should also be able to change the number of neurons in the dense layer.
 
@@ -32,7 +32,7 @@ You will now train your model using the iNaturalist dataset. The zip file contai
 
 Using the sweep feature in wandb find the best hyperparameter configuration. Here are some suggestions but you are free to decide which hyperparameters you want to explore
 
-number of filters in each layer : 323232, 646464, ...
+number of filters in each layer : 32, 64, ...
 activation function for the conv layers: ReLU, GELU, SiLU, Mish, ...
 filter organisation: same number of filters in all layers, doubling in each subsequent layer, halving in each subsequent layer, etc
 data augmentation: Yes, No
