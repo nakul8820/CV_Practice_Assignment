@@ -25,8 +25,8 @@ After 555 such conv-activation-maxpool blocks, you should have one dense layer f
 
 The code should be flexible such that the number of filters, size of filters, and activation function of the convolution layers and dense layers can be changed. You should also be able to change the number of neurons in the dense layer.
 
-What is the total number of computations done by your network? (assume mmm filters in each layer of size k×kk\times kk×k and nnn neurons in the dense layer)
-What is the total number of parameters in your network? (assume mmm filters in each layer of size k×kk\times kk×k and nnn neurons in the dense layer)
+What is the total number of computations done by your network? (assume m filters in each layer of size k×k\times k×k and n neurons in the dense layer)
+What is the total number of parameters in your network? (assume m filters in each layer of size k×k\times k×k and n neurons in the dense layer)
 Question 2 (15 Marks)
 You will now train your model using the iNaturalist dataset. The zip file contains a train and a test folder. Set aside 20%20\%20% of the training data, as validation data, for hyperparameter tuning. Make sure each class is equally represented in the validation data. Do not use the test data for hyperparameter tuning.
 
