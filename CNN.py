@@ -1,4 +1,5 @@
 #import 
+import os
 import numpy as np
 import scipy
 import torch
@@ -8,7 +9,8 @@ import torch.nn.Functional as F
 from torch.utils.data import DataLoader, Subset
 import matplotlib.pyplot as plt
 import math
-import torchvision import datasets, transforms
+from tqdm.auto import tqdm
+import torchvision import datasets, transforms , random_split
 
 
 '''
@@ -40,8 +42,6 @@ class CNNModel(nn.Module):
     if not (len(kernel_size) == len(conv_out_channels)):
         raise ValueError("Kernel Size and Conv output channels length should be same")
 
-    def calc_output_dim(input_dim , k_size , stride , padding):
-        return floor(((input_dim + 2 * padding - k_size) / stride)+ 1)
     
     current_hw_dim = input_size
     k_size = 0
@@ -67,18 +67,57 @@ class CNNModel(nn.Module):
     #output layer
     self.dense_layers.add_module('output' , nn.Linear(dense_layer_out , num_of_class))
 
+def calc_output_dim(input_dim , k_size , stride , padding):
+        return floor(((input_dim + 2 * padding - k_size) / stride)+ 1)
+    
 def forward(self, x):
     """Defines how data flows through the network."""
     # Pass through convolutional layers
-    x = self.conv_layers(x)
-        
+    x = self.conv_layers(x)      
     # Flatten the output for the dense layers
     x = x.view(x.size(0), -1) # x.size(0) is the batch size
-
     # Pass through dense layers
     x = self.dense_layers(x)
-
     return x
+
+def train_model(model, data_loader , optimizer , criterion , num_epochs  , model_name):
+    # Tell wandb to watch what the model gets up to: gradients, weights, and more!
+    wandb.watch(model, criterion, log="all", log_freq=10)
+    model = model.to(device)
+    print(f"Training{model_name} architecture:")
+    print(model)
+    total_batches = len(loader) * config.epochs
+    example_ct = 0  # number of examples seen
+    batch_ct = 0
+    
+    for epoch in tqdm(range(num_epochs)):
+
+        for _,(images ,labels) in enumerate(loader):
+            loss = train_batch(images , labels , model ,optimizer , criterion)
+            examples_ct += len(images)
+            batch_ct += 1
+            
+def train_batch(images, labels, model, optimizer, criterion):
+    images, labels = images.to(device), labels.to(device)
+    
+    # Forward pass ➡
+    outputs = model(images)
+    loss = criterion(outputs, labels)
+    
+    # Backward pass ⬅
+    optimizer.zero_grad()
+    loss.backward()
+
+    # Step with optimizer
+    optimizer.step()
+
+    return loss
+    
+def train_log(loss, example_ct, epoch):
+    # Where the magic happens
+    wandb.log({"epoch": epoch, "loss": loss}, step=example_ct)
+    print(f"Loss after {str(example_ct).zfill(5)} examples: {loss:.3f}")
+        
 '''
     for (conv_out , k_size) in zip(conv_out_channels , kernel_size):
         conv_layers.append(
@@ -131,7 +170,7 @@ data_transform = transforms.Compose([
 ])
 
 
-class dataloader(Datasets):
+class ImageDataset(Datasets):
     def __init__(self,data_dir,transform=data_transform):
         self.data_dir = data.dir
         self.transform = data_transform
@@ -139,5 +178,48 @@ class dataloader(Datasets):
         self.labels = []
         sel.class_to_idx = {}
 
+        class_names = sorted(os.listdir(data_dir))
+        for i , class_name in enumerate(os.listdir(path_dir)):
+            class_path = os.path.join(data_dir , class_name)
+            if os.path.isdir(class_path):
+                self.class_to_idx[class_name] = i
+                #collect all the file paths and corresponding labels
+                for file_name in os.listdir(class_path):
+                    if file_name.endswith(('.jpg')):
+                        self.image_paths.append(os.path.join(class_name , file_name))
+                        self.labels.append(i)
+
+    def __len__(self):
+        # Return the total number of samples
+        return len(self.image_paths)
         
+    def train_val_data(dataset , val_split_ratio=0.20 ,batch_size=64):
+        #here i will split 20% of train data for validation and hyper parameter fine tuning
+        total_size = len(dataset)
+        val_size = int(val_split_ratio * total_size)
+        train_size = int((1-val_split_ratio) *total_size)
+        split_size = [train_size , val_size]
+        train_dataset , val_dataset = random_split(
+            dataset ,split_size , 
+            generator = torch.Generator().manual_seed(42)
+        )
+
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size = batch_size,
+            shuffle = True,
+        )
+        test_loader = DataLoader(
+            test_dataset,
+            batch_size = batch_size,
+            shuffle = False,
+        )
+
+    def test_data(dataset,batch_sixe = 64):
+        test_loader = DataLoader(
+            test_dataset,
+            batch_size = batch_size,
+            shuffle = False
+        )
+
 
