@@ -184,6 +184,9 @@ def forward(self , x , conv_activation_func , dense_activation_func):
 
 data_transform = transforms.Compose([
     transforms.Resize(16),
+    #Augmentation
+    transforms.RandomHorizontalFlip(), 
+    transforms.RandomRotation(10),
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.5,0.5,0.5],
                         std =[0.5,0.5,0.5])
