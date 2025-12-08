@@ -80,7 +80,7 @@ def forward(self, x):
     x = self.dense_layers(x)
     return x
 
-def train_model(model, data_loader , optimizer , criterion , num_epochs  , model_name):
+def train_model(model, train_loader , optimizer , criterion , num_epochs  , model_name):
     # Tell wandb to watch what the model gets up to: gradients, weights, and more!
     wandb.watch(model, criterion, log="all", log_freq=10)
     model = model.to(device)
@@ -117,7 +117,27 @@ def train_log(loss, example_ct, epoch):
     # Where the magic happens
     wandb.log({"epoch": epoch, "loss": loss}, step=example_ct)
     print(f"Loss after {str(example_ct).zfill(5)} examples: {loss:.3f}")
+
+
+def test(model , test_loader):
+    model.eval()
+
+    with torch.no_grad():
+        correct , total = 0 , 0
+        for images, labels in test_loader:
+            images,labels = images.to(device) , labels.to(device)
+            outputs = model(images)
+            _, predicted = torch.max(outputs.data , 1)
+            tottal =+ label.size(0)
+            correct += (predicted == labels).cum().item()
+        print(f"Accuracy of the model on the {total} " +
+              f"test images: {correct / total:%}")
         
+        wandb.log({"test_accuracy": correct / total})
+    #Save the model in exchangeable ONNX format
+    torch.onnx.export(model, images, "model.onnx")
+    wandb.save("model.onnx")
+
 '''
     for (conv_out , k_size) in zip(conv_out_channels , kernel_size):
         conv_layers.append(
