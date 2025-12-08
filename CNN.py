@@ -8,6 +8,7 @@ import torch.nn.Functional as F
 from torch.utils.data import DataLoader, Subset
 import matplotlib.pyplot as plt
 import math
+import torchvision import datasets, transforms
 
 
 '''
@@ -121,3 +122,22 @@ def forward(self , x , conv_activation_func , dense_activation_func):
     x = F.conv_activation_func(self.conv5(x))
     x = F.max_pool2d(x , 2)
 '''
+
+data_transform = transforms.Compose([
+    transforms.Resize(256),
+    transform.ToTensor(),
+    transform.Normalize(mean=[0.5,0.5,0.5],
+                        std =[0.5,0.5,0.5]
+])
+
+
+class dataloader(Datasets):
+    def __init__(self,data_dir,transform=data_transform):
+        self.data_dir = data.dir
+        self.transform = data_transform
+        self.imagepaths = []
+        self.labels = []
+        sel.class_to_idx = {}
+
+        
+
