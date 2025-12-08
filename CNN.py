@@ -47,7 +47,8 @@ class CNNModel(nn.Module):
     k_size = 0
     pool_k_size = 2
     pool_stride = 2
-    pool_padding = 2
+    pool_padding = 0
+                   
     for i ,(k_size , out_channels) in enumerate(zip(kernel_size,conv_out_channels)):
         self.conv_layers.add_module(f'conv{i+1}', nn.Conv2d(in_channels ,
                                                              out_channels ,
@@ -55,7 +56,10 @@ class CNNModel(nn.Module):
                                                             padding = "same"))
         
         self.conv_layers.add_module(f'activation_{i+1}', activation_func())
-        self.conv_layers.add_module(f'pooling_{i+1}', nn.MaxPool2d(kernel_size = 2, padding=2))
+        self.conv_layers.add_module(f'pooling_{i+1}', nn.MaxPool2d(kernel_size = pool_k_size,
+                                                                   stride=pool_stride,
+                                                                  padding=pool_padding)
+                                   )
 
         current_hw_dim = calc_output_dim(current_hw_dim, pool_k_size, pool_stride, pool_padding)
         in_channels = out_channels  #output channels of previous layer becomes input for next channels
@@ -68,14 +72,14 @@ class CNNModel(nn.Module):
     self.dense_layers.add_module('output' , nn.Linear(dense_layer_out , num_of_class))
 
 def calc_output_dim(input_dim , k_size , stride , padding):
-        return floor(((input_dim + 2 * padding - k_size) / stride)+ 1)
+    return floor(((input_dim + 2 * padding - k_size) / stride)+ 1)
     
 def forward(self, x):
     """Defines how data flows through the network."""
     # Pass through convolutional layers
     x = self.conv_layers(x)      
     # Flatten the output for the dense layers
-    x = x.view(x.size(0), -1) # x.size(0) is the batch size
+    x = x.view(x.size(0), -1) 
     # Pass through dense layers
     x = self.dense_layers(x)
     return x
@@ -202,7 +206,7 @@ class ImageDataset(torch.utils.data.Datasets):
         self.class_to_idx = {}
 
         class_names = sorted(os.listdir(data_dir))
-        for i , class_name in enumerate(os.listdir(data_dir)):
+        for i , class_name in enumerate(class_names):
             class_path = os.path.join(data_dir , class_name)
             if os.path.isdir(class_path):
                 self.class_to_idx[class_name] = i
@@ -215,6 +219,18 @@ class ImageDataset(torch.utils.data.Datasets):
     def __len__(self):
         # Return the total number of samples
         return len(self.image_paths)
+
+    def __getitem__(self, index):
+        img_path = self.image_paths[index]
+        label = self.labels[index]
+        
+        # Load image using PIL.Image
+        image = Image.open(img_path).convert('RGB')
+        
+        if self.transform:
+            image = self.transform(image)
+            
+        return image, label
         
     def train_val_data(dataset , val_split_ratio=0.20 ,batch_size):
         #here i will split 20% of train data for validation and hyper parameter fine tuning
