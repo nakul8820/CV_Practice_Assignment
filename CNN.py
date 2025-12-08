@@ -62,6 +62,7 @@ class CNNModel(nn.Module):
     self.dense_layers = nn.Sequential()
 
     self.dense_layers.add_module('fc1' , nn.Linear(input_for_dense_layer , dense_layer_out))
+    self.dense_layers.add_module(f'activation_',dense_layer_func())
     #output layer
     self.dense_layers.add_module('output' , nn.Linear(dense_layer_out , num_of_class))
 
