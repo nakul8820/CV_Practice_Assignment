@@ -6,12 +6,12 @@ import torch
 import torch.nn as nn
 import torch.optim as optimizer
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, Subset,random_split
+from torch.utils.data import DataLoader, Subset,random_split,Dataset
 import matplotlib.pyplot as plt
 from math import floor
 from tqdm.auto import tqdm
-from torchvision import datasets, transforms 
-
+from torchvision import transforms 
+from PIL import Image
 
 '''
 1 . Build a small CNN model consisting of 555 convolution layers. Each convolution layer would be 
@@ -63,7 +63,7 @@ class CNNModel(nn.Module):
 
         current_hw_dim = calc_output_dim(current_hw_dim, pool_k_size, pool_stride, pool_padding)
         in_channels = out_channels  #output channels of previous layer becomes input for next channels
-    input_for_dense_layer = current_hw_dim * current_hw_dim * in_channels 
+    input_for_dense_layer = current_hw_dim * current_hw_dim * in_channels
     self.dense_layers = nn.Sequential()
 
     self.dense_layers.add_module('fc1' , nn.Linear(input_for_dense_layer , dense_layer_out))
@@ -77,9 +77,9 @@ def calc_output_dim(input_dim , k_size , stride , padding):
 def forward(self, x):
     """Defines how data flows through the network."""
     # Pass through convolutional layers
-    x = self.conv_layers(x)      
+    x = self.conv_layers(x)
     # Flatten the output for the dense layers
-    x = x.view(x.size(0), -1) 
+    x = x.view(x.size(0), -1)
     # Pass through dense layers
     x = self.dense_layers(x)
     return x
@@ -98,7 +98,7 @@ def train_model(model, train_loader , optimizer , criterion , num_epochs  , mode
 
         for _,(images ,labels) in enumerate(train_loader):
             loss = train_batch(images , labels , model ,optimizer , criterion)
-            examples_ct += len(images)
+            example_ct += len(images)
             batch_ct += 1
             
 def train_batch(images, labels, model, optimizer, criterion):
@@ -122,7 +122,6 @@ def train_log(loss, example_ct, epoch):
     wandb.log({"epoch": epoch, "loss": loss}, step=example_ct)
     print(f"Loss after {str(example_ct).zfill(5)} examples: {loss:.3f}")
 
-
 def test(model , test_loader):
     model.eval()
 
@@ -132,8 +131,8 @@ def test(model , test_loader):
             images,labels = images.to(device) , labels.to(device)
             outputs = model(images)
             _, predicted = torch.max(outputs.data , 1)
-            tottal += label.size(0)
-            correct += (predicted == labels).cum().item()
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
         print(f"Accuracy of the model on the {total} " +
               f"test images: {correct / total:%}")
         
@@ -189,7 +188,7 @@ def forward(self , x , conv_activation_func , dense_activation_func):
 data_transform = transforms.Compose([
     transforms.Resize(16),
     #Augmentation
-    transforms.RandomHorizontalFlip(), 
+    transforms.RandomHorizontalFlip(),
     transforms.RandomRotation(10),
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.5,0.5,0.5],
@@ -197,11 +196,11 @@ data_transform = transforms.Compose([
 ])
 
 
-class ImageDataset(torch.utils.data.Datasets):
-    def __init__(self,data_dir,transform=data_transform):
+class ImageDataset(Dataset):
+    def __init__(self,data_dir,transform):
         self.data_dir = data_dir
         self.transform = data_transform
-        self.imagepaths = []
+        self.image_paths = []
         self.labels = []
         self.class_to_idx = {}
 
@@ -213,7 +212,7 @@ class ImageDataset(torch.utils.data.Datasets):
                 #collect all the file paths and corresponding labels
                 for file_name in os.listdir(class_path):
                     if file_name.endswith(('.jpg')):
-                        self.image_paths.append(os.path.join(class_name , file_name))
+                        self.image_paths.append(os.path.join(class_path , file_name))
                         self.labels.append(i)
 
     def __len__(self):
@@ -232,11 +231,11 @@ class ImageDataset(torch.utils.data.Datasets):
             
         return image, label
         
-    def train_val_data(dataset , val_split_ratio=0.20 ,batch_size):
+    def train_val_data(dataset , batch_size , val_split_ratio=0.20 ):
         #here i will split 20% of train data for validation and hyper parameter fine tuning
         total_size = len(dataset)
         val_size = int(val_split_ratio * total_size)
-        train_size = int((1-val_split_ratio) *total_size)
+        train_size = total_size -val_size
         split_size = [train_size , val_size]
         train_dataset , val_dataset = random_split(
             dataset ,split_size , 
@@ -261,12 +260,12 @@ class ImageDataset(torch.utils.data.Datasets):
     
         return train_loader, val_loader
 
-    def test_data(dataset,batch_sixe = 64):
+    def test_data(test_dataset,batch_size = 64):
         test_loader = DataLoader(
             test_dataset,
             batch_size = batch_size,
             shuffle = False
         )
-        return test_dataset
+        return test_loader
 
 
