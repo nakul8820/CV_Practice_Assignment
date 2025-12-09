@@ -260,7 +260,7 @@ class ImageDataset(Dataset):
     
         return train_loader, val_loader
 
-    def test_data(test_dataset,batch_size = 64):
+    def test_loader(test_dataset,batch_size ):
         test_loader = DataLoader(
             test_dataset,
             batch_size = batch_size,
