@@ -27,62 +27,50 @@ output layer containing 10  neurons (1 for each of the 10 classes).
     You should also be able to change the number of neurons in the dense layer.
 '''
 class CNNModel(nn.Module):
-  def __init__(self,
-               input_size ,            #input HXW
-               conv_out_channels  ,     #list of int
-               kernel_size  ,           #list of int
-               dense_layer_out,        #integer
-               activation_func  , # expected Passed as nn.Module class (e.g., nn.ReLU , nn.Sigmoid etc)
-               dense_layer_func ,
-               num_of_class):
-    super(CNNModel,self).__init__()
-    self.conv_layers = nn.Sequential()
-    in_channels = 3 #RGB Assumption
-
-    if not (len(kernel_size) == len(conv_out_channels)):
-        raise ValueError("Kernel Size and Conv output channels length should be same")
-
-    
-    current_hw_dim = input_size
-    k_size = 0
-    pool_k_size = 2
-    pool_stride = 2
-    pool_padding = 0
-                   
-    for i ,(k_size , out_channels) in enumerate(zip(kernel_size,conv_out_channels)):
-        self.conv_layers.add_module(f'conv{i+1}', nn.Conv2d(in_channels ,
-                                                             out_channels ,
-                                                             k_size,
-                                                            padding = "same"))
+    def __init__(self,
+                conv_out_channels,
+                kernel_size,     
+                dense_layer_out,  #int
+                activation_func ,  #expexted ex.nn.Relu , nn.Sigmoid
+                dense_layer_func , #expexted ex.nn.Relu , nn.Sigmoid
+                num_of_class,
+                drop_out_input,
+                drop_out_hidden
+                ):
+        super(CNNModel,self).__init__()
         
-        self.conv_layers.add_module(f'activation_{i+1}', activation_func())
-        self.conv_layers.add_module(f'pooling_{i+1}', nn.MaxPool2d(kernel_size = pool_k_size,
-                                                                   stride=pool_stride,
-                                                                  padding=pool_padding)
-                                   )
-
-        current_hw_dim = calc_output_dim(current_hw_dim, pool_k_size, pool_stride, pool_padding)
-        in_channels = out_channels  #output channels of previous layer becomes input for next channels
-    input_for_dense_layer = current_hw_dim * current_hw_dim * in_channels
-    self.dense_layers = nn.Sequential()
-
-    self.dense_layers.add_module('fc1' , nn.Linear(input_for_dense_layer , dense_layer_out))
-    self.dense_layers.add_module(f'activation_',dense_layer_func())
-    #output layer
-    self.dense_layers.add_module('output' , nn.Linear(dense_layer_out , num_of_class))
-
-def calc_output_dim(input_dim , k_size , stride , padding):
-    return floor(((input_dim + 2 * padding - k_size) / stride)+ 1)
+        self.conv_layers = Sequential()
+        in_channels = 3 #RGB 
+        
+        if len(conv_out_channels) != len(kernel_size):
+            raise ValueError("Kernels and Channels length should be samex")
+        
+        pool_kernel,pool_stride, pool_pad = 2 , 2 , 0
+        
+        self.conv_layers.add_module("dropout_input",nn.Dropout(p=drop_out_input))
+        
+        for i , (k_size,out_channels) in enumerate(zip(kernel_size , conv_out_channels)):
+            self.conv_layers.add_module(f'conv{i+1}',nn.Conv2d(in_channels,
+                                                              out_channels,
+                                                              k_size,
+                                                              padding='same'))
+            self.conv_layers.add_module(f'activ{i+1}',activation_func())
+            self.conv_layers.add_module(f'pooling{i+1}',nn.MaxPool2d(pool_kernel,
+                                                                    pool_stride))
+            self.conv_layers.add_module(f'dropout{i+1}',nn.Dropout2d(p=drop_out_hidden))
+            in_channels = out_channels
+        
+        self.dense_layers = Sequential()
     
-def forward(self, x):
-    """Defines how data flows through the network."""
-    # Pass through convolutional layers
-    x = self.conv_layers(x)
-    # Flatten the output for the dense layers
-    x = x.view(x.size(0), -1)
-    # Pass through dense layers
-    x = self.dense_layers(x)
-    return x
+        self.dense_layers.add_module("fc1",nn.LazyLinear(out_features=dense_layer_out) )
+        self.dense_layers.add_module("activ_dense", dense_layer_func())
+        self.dense_layers.add_module('output',nn.Linear(dense_layer_out ,num_of_class))
+
+    def forward(self,x):
+        x = self.conv_layers(x)
+        x = torch.flatten(x,1)
+        x = self.dense_layers(x)
+        return x
 
 def train_model(model, train_loader , optimizer , criterion , num_epochs  , model_name):
     # Tell wandb to watch what the model gets up to: gradients, weights, and more!
