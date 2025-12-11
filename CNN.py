@@ -25,8 +25,7 @@ output layer containing 10  neurons (1 for each of the 10 classes).
 4 . The code should be flexible such that the number of filters, size of filters, and activation function 
     of the convolution layers  and dense layers can be changed. 
     You should also be able to change the number of neurons in the dense layer.
-'''
-class CNNModel(nn.Module):
+'''class CNNModel(nn.Module):
     def __init__(self,
                 conv_out_channels,
                 kernel_size,     
@@ -34,7 +33,7 @@ class CNNModel(nn.Module):
                 activation_func ,  #expexted ex.nn.Relu , nn.Sigmoid
                 dense_layer_func , #expexted ex.nn.Relu , nn.Sigmoid
                 num_of_class,
-                drop_out_input,
+                drop_out_input,    #
                 drop_out_hidden
                 ):
         super(CNNModel,self).__init__()
@@ -47,7 +46,8 @@ class CNNModel(nn.Module):
         
         pool_kernel,pool_stride, pool_pad = 2 , 2 , 0
         
-        self.conv_layers.add_module("dropout_input",nn.Dropout(p=drop_out_input))
+        drop_out_ratio_input = drop_out_input or 0.1
+        self.conv_layers.add_module("dropout_input",nn.Dropout(p=drop_out_ratio_input))
         
         for i , (k_size,out_channels) in enumerate(zip(kernel_size , conv_out_channels)):
             self.conv_layers.add_module(f'conv{i+1}',nn.Conv2d(in_channels,
