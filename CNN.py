@@ -25,7 +25,8 @@ output layer containing 10  neurons (1 for each of the 10 classes).
 4 . The code should be flexible such that the number of filters, size of filters, and activation function 
     of the convolution layers  and dense layers can be changed. 
     You should also be able to change the number of neurons in the dense layer.
-'''class CNNModel(nn.Module):
+'''
+class CNNModel(nn.Module):
     def __init__(self,
                 conv_out_channels,
                 kernel_size,     
