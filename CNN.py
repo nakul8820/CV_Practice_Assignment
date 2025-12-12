@@ -315,3 +315,87 @@ def validate_epoch(model, val_loader):
             
 
     return epoch_loss, epoch_accuracy
+
+#######################################
+'''
+TRIED Some Test If model is learning in small dataset and if model's getting right dataset with right class.
+Here is Modified train function for This Testing 
+'''
+def overfit_dataset(batch_size):
+    
+    
+    transform = transforms.Compose([
+            transforms.Resize((224,224)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=(0.5,0.5,0.5), std=(0.5,0.5,0.5))
+        ])
+    DATA_DIR = '/kaggle/input/subset-of-original-data/i_nature_sample' 
+    #TRAIN_DIR = os.path.join(DATA_DIR, 'train')
+    TEST_DIR = os.path.join(DATA_DIR, 'test')
+    
+    full_train_dataset = ImageFolder(root=TEST_DIR,transform=transform)
+
+    
+    #20 % for validation
+    #train_size = int(0.8 * len(full_train_dataset))
+    #val_size = math.ceil(0.2 * len(full_train_dataset))
+    
+    #torch.manual_seed(42)
+    #train_dataset , val_dataset = random_split(
+    #   full_train_dataset,
+    #    [train_size , val_size]
+    #)
+    
+    train_loader = DataLoader(full_train_dataset ,
+                              batch_size=batch_size,
+                              shuffle=True
+                             )
+    val_loader = DataLoader(full_train_dataset ,
+                              batch_size=batch_size,
+                              shuffle=False
+                             )
+    return train_loader , val_loader
+    
+def train(): #without wandb 
+    optimizer = 'adam'
+    train_loader , val_loader = overfit_dataset(32)
+    optimizer = get_optimizer(model, optimizer ,0.0001)
+    
+    for i in range(50):
+        avg_loss = train_epoch(model , train_loader , optimizer)
+        print('epoch_loss:',avg_loss)
+        val_loss, val_accuracy = validate_epoch(model, val_loader)
+        print(f" Val Loss: {val_loss:.4f} | Val Accuracy: {val_accuracy:.2f}%")
+        #print(f"loss: {avg_loss}, epoch: {i+1},val_loss: {val_loss},val_accuracy: {val_accuracy}")
+
+# %% [code] {"execution":{"iopub.status.busy":"2025-12-12T16:51:24.121615Z","iopub.execute_input":"2025-12-12T16:51:24.122181Z","iopub.status.idle":"2025-12-12T16:57:13.740671Z","shell.execute_reply.started":"2025-12-12T16:51:24.122157Z","shell.execute_reply":"2025-12-12T16:57:13.739955Z"}}
+train()
+
+# %% [code] {"execution":{"iopub.status.busy":"2025-12-12T16:23:15.437228Z","iopub.execute_input":"2025-12-12T16:23:15.437865Z","iopub.status.idle":"2025-12-12T16:23:15.455568Z","shell.execute_reply.started":"2025-12-12T16:23:15.437837Z","shell.execute_reply":"2025-12-12T16:23:15.455033Z"}}
+model_para = model.parameters()
+'''
+model = CNNModel(
+    conv_out_channels=get_conv_out_channels("same_64") ,
+    kernel_size= get_kernel_size(3),
+    dense_layer_out=512,
+    activation_func=nn.ReLU,
+    dense_layer_func=nn.Sigmoid,
+    num_of_class=10,
+    drop_out_input=0.1,
+    drop_out_hidden=0.2
+).to(device)
+'''
+param_dir = "/kaggle/working/model_parameters"
+os.makedirs(param_dir, exist_ok=True)
+param_path = os.path.join(param_dir, "same_54_k3.pth")
+
+# Save only the parameters (state_dict)
+torch.save(model.state_dict(), param_path)
+
+# %% [code] {"execution":{"iopub.status.busy":"2025-12-12T16:46:28.196417Z","iopub.execute_input":"2025-12-12T16:46:28.197388Z","iopub.status.idle":"2025-12-12T16:46:28.216476Z","shell.execute_reply.started":"2025-12-12T16:46:28.197360Z","shell.execute_reply":"2025-12-12T16:46:28.215862Z"}}
+#overfit data #small val_data 35% accuracy
+torch.save(model.state_dict(),param_path)
+
+# %% [code] {"execution":{"iopub.status.busy":"2025-12-12T16:58:28.433807Z","iopub.execute_input":"2025-12-12T16:58:28.434623Z","iopub.status.idle":"2025-12-12T16:58:28.438020Z","shell.execute_reply.started":"2025-12-12T16:58:28.434596Z","shell.execute_reply":"2025-12-12T16:58:28.437229Z"}}
+#one more overfit data (only test data small data to see if dataset function is correct )
+#(99% accuracy ) ran it for 50 epochs . removed Horizontal flip from transform 
