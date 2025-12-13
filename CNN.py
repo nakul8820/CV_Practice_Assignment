@@ -21,10 +21,6 @@ import math
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-
-!pip install wandb -Uq!pip install wandb -Uq
-
-
 sweep_config = {
     'method': 'bayes' ,
     
@@ -87,36 +83,11 @@ sweep_config = {
 }
 
 
-def get_activation_function(name):
-    if name == "ReLU":
-        return nn.ReLU
-    elif name == "GELU":
-        return nn.GELU
-    elif name == "Sigmoid":
-        return nn.Sigmoid
-    elif name == "SiLU":
-        return nn.SiLU
-    else:
-        raise ValueError(f"Unknown activation function: {name}")
+sweep_id = wandb.sweep(sweep_config, project="CV_project")
+
+wandb.agent(sweep_id, train, count=5)
 
 
-def get_conv_out_channels(value:str):
-    if value == 'same_32':
-        return [32,32,32,32,32]
-    elif value == 'same_64':
-        return [64,64,64,64,64]
-    elif value == 'double_from_16':
-        return [16,32,64,128,256]
-    elif value == 'double_from_32':
-        return [32,64,128,256,512]
-    else:
-        print("Using 32 for all the Layers")
-        return [32,32,32,32,32]
-        
-def get_kernel_size(k_size):
-    if type(k_size):
-        return [k_size,k_size,k_size,k_size,k_size]
-    
 class CNNModel(nn.Module):
     def __init__(self,
                 conv_out_channels,
@@ -164,42 +135,52 @@ class CNNModel(nn.Module):
         x = self.dense_layers(x)
         return x
 
+def get_activation_function(name):
+    if name == "ReLU":
+        return nn.ReLU
+    elif name == "GELU":
+        return nn.GELU
+    elif name == "Sigmoid":
+        return nn.Sigmoid
+    elif name == "SiLU":
+        return nn.SiLU
+    else:
+        raise ValueError(f"Unknown activation function: {name}")
 
 
-sweep_id = wandb.sweep(sweep_config, project="CV_project")
-
-wandb.agent(sweep_id, train, count=5)
-
-
-def train(config=None):
-    wandb.init(config=sweep_config)
-    config = wandb.config
+def get_conv_out_channels(value:str):
+    if value == 'same_32':
+        return [32,32,32,32,32]
+    elif value == 'same_64':
+        return [64,64,64,64,64]
+    elif value == 'double_from_16':
+        return [16,32,64,128,256]
+    elif value == 'double_from_32':
+        return [32,64,128,256,512]
+    else:
+        print("Using 32 for all the Layers")
+        return [32,32,32,32,32]
+        
+##########   Kernel Size   ############
+def get_kernel_size(k_size):
+    if type(k_size):
+        return [k_size,k_size,k_size,k_size,k_size]
     
-    model = CNNModel(conv_out_channels= get_conv_out_channels(config.conv_out_channels),
-                    kernel_size=get_kernel_size(config.kernel_size),
-                    dense_layer_out=config.dense_layer_out,
-                    activation_func= get_activation_function(config.activation_func),
-                    dense_layer_func=get_activation_function(config.dense_layer_func),
-                    num_of_class=config.num_of_class,
-                    drop_out_input=config.drop_out_input,
-                    drop_out_hidden= config.drop_out_hidden)
+def get_optimizer(model , optimizer:str,learning_rate:float):
+    if optimizer == "sgd":
+        optimizer_fnc = optim.SGD(model.parameters(),
+                                 lr=learning_rate, momentum=0.9)
+    elif optimizer == "adam":
+        optimizer_fnc = optim.Adam(model.parameters(),
+                                  lr=learning_rate)
+    elif optimizer == "rmsprop":
+        optimizer_fnc = optim.RMSprop(model.parameters(),
+                                     lr=learning_rate)
+    else:
+        print("No optimizer Initialized")
+    return optimizer_fnc
 
-    print(f"Model initialized with kernel size: {config.kernel_size} and dropout: {config.drop_out_hidden}")
-    model.to(device)
-    train_loader , val_loader = dataset(config.batch_size)
-    optimizer = get_optimizer(model,config.optimizer ,config.learning_rate)
-
-    for epoch in range(config.epochs):
-        avg_loss = train_epoch(model , train_loader , optimizer)
-        
-        val_loss, val_accuracy = validate_epoch(model, val_loader)
-        print(f" Val Loss: {val_loss:.4f} | Val Accuracy: {val_accuracy:.2f}%")
-        wandb.log({"loss": avg_loss, "epoch": epoch,
-                  "val_loss": val_loss,        # Logs validation loss
-            "val_accuracy": val_accuracy})
-        
-
-
+##########   Dataset loader   ############
 def dataset(batch_size):
     
     
@@ -236,22 +217,35 @@ def dataset(batch_size):
                              )
     return train_loader , val_loader
 
+##########   Training Logic (with wandb agent integrated , train as well as val for each epoch)   ############
+def train(config=None):
+    wandb.init(config=sweep_config)
+    config = wandb.config
+    
+    model = CNNModel(conv_out_channels= get_conv_out_channels(config.conv_out_channels),
+                    kernel_size=get_kernel_size(config.kernel_size),
+                    dense_layer_out=config.dense_layer_out,
+                    activation_func= get_activation_function(config.activation_func),
+                    dense_layer_func=get_activation_function(config.dense_layer_func),
+                    num_of_class=config.num_of_class,
+                    drop_out_input=config.drop_out_input,
+                    drop_out_hidden= config.drop_out_hidden)
 
-def get_optimizer(model , optimizer:str,learning_rate:float):
-    if optimizer == "sgd":
-        optimizer_fnc = optim.SGD(model.parameters(),
-                                 lr=learning_rate, momentum=0.9)
-    elif optimizer == "adam":
-        optimizer_fnc = optim.Adam(model.parameters(),
-                                  lr=learning_rate)
-    elif optimizer == "rmsprop":
-        optimizer_fnc = optim.RMSprop(model.parameters(),
-                                     lr=learning_rate)
-    else:
-        print("No optimizer Initialized")
-    return optimizer_fnc
+    print(f"Model initialized with kernel size: {config.kernel_size} and dropout: {config.drop_out_hidden}")
+    model.to(device)
+    train_loader , val_loader = dataset(config.batch_size)
+    optimizer = get_optimizer(model,config.optimizer ,config.learning_rate)
 
-
+    for epoch in range(config.epochs):
+        avg_loss = train_epoch(model , train_loader , optimizer)
+        
+        val_loss, val_accuracy = validate_epoch(model, val_loader)
+        print(f" Val Loss: {val_loss:.4f} | Val Accuracy: {val_accuracy:.2f}%")
+        wandb.log({"loss": avg_loss, "epoch": epoch,
+                  "val_loss": val_loss,        # Logs validation loss
+            "val_accuracy": val_accuracy})
+        
+##########   Logic For Each Epoch and Back Propagation    ############
 def train_epoch(model , train_loader , optimizer):
     model.train()
     running_loss = 0
@@ -276,7 +270,7 @@ def train_epoch(model , train_loader , optimizer):
 
     return epoch_loss
 
-
+##########   Logic for Each epoch Validation   ############
 def validate_epoch(model, val_loader):
     criterion = nn.CrossEntropyLoss()
     
@@ -316,7 +310,8 @@ def validate_epoch(model, val_loader):
 
     return epoch_loss, epoch_accuracy
 
-#######################################
+########################################################
+############### Testing Code of Model ##################
 '''
 TRIED Some Test If model is learning in small dataset and if model's getting right dataset with right class.
 Here is Modified train function for This Testing 
