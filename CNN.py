@@ -169,13 +169,15 @@ def get_kernel_size(k_size):
 def get_optimizer(model , optimizer:str,learning_rate:float):
     if optimizer == "sgd":
         optimizer_fnc = optim.SGD(model.parameters(),
-                                 lr=learning_rate, momentum=0.9)
+                                 lr=learning_rate, momentum=0.9 ,
+                                 , weight_decay=1e-4)
     elif optimizer == "adam":
         optimizer_fnc = optim.Adam(model.parameters(),
-                                  lr=learning_rate)
+                                  lr=learning_rate, weight_decay=1e-4)
     elif optimizer == "rmsprop":
         optimizer_fnc = optim.RMSprop(model.parameters(),
-                                     lr=learning_rate)
+                                     lr=learning_rate,
+                                     , weight_decay=1e-4)
     else:
         print("No optimizer Initialized")
     return optimizer_fnc
@@ -186,7 +188,7 @@ def dataset(batch_size):
     
     transform = transforms.Compose([
             transforms.Resize((224,224)),
-            transforms.RandomHorizontalFlip(p=0.5),
+            #transforms.RandomHorizontalFlip(p=0.5),
             transforms.ToTensor(),
             transforms.Normalize(mean=(0.5,0.5,0.5), std=(0.5,0.5,0.5))
         ])
@@ -218,7 +220,7 @@ def dataset(batch_size):
     return train_loader , val_loader
 
 ##########   Training Logic (with wandb agent integrated , train as well as val for each epoch)   ############
-def train(config=None):
+def train_test(config=None):
     wandb.init(config=sweep_config)
     config = wandb.config
     
@@ -237,13 +239,15 @@ def train(config=None):
     optimizer = get_optimizer(model,config.optimizer ,config.learning_rate)
 
     for epoch in range(config.epochs):
-        avg_loss = train_epoch(model , train_loader , optimizer)
+        epoch_loss = train_epoch(model , train_loader , optimizer)
         
         val_loss, val_accuracy = validate_epoch(model, val_loader)
         print(f" Val Loss: {val_loss:.4f} | Val Accuracy: {val_accuracy:.2f}%")
-        wandb.log({"loss": avg_loss, "epoch": epoch,
+        wandb.log({"loss": epoch_loss, "epoch": epoch,
                   "val_loss": val_loss,        # Logs validation loss
             "val_accuracy": val_accuracy})
+    test_accuracy = test_model(model , config.batch_size)
+    wand.log({"test_accuracy":test_accuracy})
         
 ##########   Logic For Each Epoch and Back Propagation    ############
 def train_epoch(model , train_loader , optimizer):
@@ -309,7 +313,44 @@ def validate_epoch(model, val_loader):
             
 
     return epoch_loss, epoch_accuracy
+########################    Test Model    
 
+def test_model(model ,batch_size):
+    loader = test_loader(batch_size)
+    accuracy = test(model ,loader)
+    return accuracy
+
+def test_loader(batch_size):
+    DATA_DIR = '/kaggle/input/subset-of-original-data/i_nature_sample'
+    TEST_DIR = os.path.join(DATA_DIR, 'test')
+    test_dataset = ImageFolder(root=TEST_DIR)
+    test_loader = DataLoader(test_dataset , 
+                            batch_size = batch_size,
+                            shuffle = False)
+    return test_loader
+
+def test(model , test_loader):
+    model.eval()
+    correct_pred = 0
+    total_pred = 0
+    
+    with torch.no_grad():
+        for images ,labels in test_loader:
+            images , labels = images.to(device) , labels.to(device)
+
+            outputs = model(images)
+            criterion = nn.CrossEntropyLoss()
+
+            loss = criterion(outputs , labels)
+            _ , predicted = torch.max(outputs.data , 1)
+
+            correct_pred += (predicted == labels).sum().item()
+            total_pred += labels.size(0)
+        
+    test_accuracy = 100 * correct_pred /total_pred
+
+    return test_accuracy
+        
 ########################################################
 ############### Testing Code of Model ##################
 '''
