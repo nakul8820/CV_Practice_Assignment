@@ -85,8 +85,12 @@ sweep_config = {
 
 sweep_id = wandb.sweep(sweep_config, project="CV_project")
 
-wandb.agent(sweep_id, train, count=5)
+wandb.agent(sweep_id, train_test, count=10)
+test_accuracy = test_model(model , 64)
+wandb.log({"test_accuracy":test_accuracy })
+print("Test_accuracy",test_accuracy)
 
+model = None
 
 class CNNModel(nn.Module):
     def __init__(self,
@@ -194,7 +198,6 @@ def dataset(batch_size):
         ])
     DATA_DIR = '/kaggle/input/subset-of-original-data/i_nature_sample' 
     TRAIN_DIR = os.path.join(DATA_DIR, 'train')
-    TEST_DIR = os.path.join(DATA_DIR, 'test')
     
     full_train_dataset = ImageFolder(root=TRAIN_DIR,transform=transform)
 
@@ -240,14 +243,11 @@ def train_test(config=None):
 
     for epoch in range(config.epochs):
         epoch_loss = train_epoch(model , train_loader , optimizer)
-        
+        print(f'Epoch loss:{epoch_loss} ,  Epoch:{epoch+1}')
         val_loss, val_accuracy = validate_epoch(model, val_loader)
-        print(f" Val Loss: {val_loss:.4f} | Val Accuracy: {val_accuracy:.2f}%")
-        wandb.log({"loss": epoch_loss, "epoch": epoch,
-                  "val_loss": val_loss,        # Logs validation loss
-            "val_accuracy": val_accuracy})
-    test_accuracy = test_model(model , config.batch_size)
-    wand.log({"test_accuracy":test_accuracy})
+        #print(f" Val Loss: {val_loss:.4f} | Val Accuracy: {val_accuracy:.2f}%")
+        wandb.log({"loss": epoch_loss, "epoch": epoch+1,
+                  "val_loss": val_loss,"val_accuracy": val_accuracy})
         
 ##########   Logic For Each Epoch and Back Propagation    ############
 def train_epoch(model , train_loader , optimizer):
