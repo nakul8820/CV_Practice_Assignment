@@ -25,14 +25,14 @@ sweep_config = {
     'method': 'bayes' ,
     
     'metric': {
-        'name': 'val_accuracy', # Track a specific metric name from your training loop
-        'goal': 'miaximize'   
+        'name': 'test_accuracy', # Track a specific metric name from your training loop
+        'goal': 'maximize'   
     },
     'parameters': {
         # --- Model Architecture: Convolutional Layers ---
         'conv_out_channels': {
             # Defines how 'base_filters' scale (your script must handle this logic)
-            'values': ['same_32', 'same_64', 'double_from_16', 'double_from_32']
+            'values': [ 'same_64', 'same_128', 'double_from_64','double_from_128']
         },
         'kernel_size': {
             # Allows sweeping a single kernel size used across all layers (e.g. all 3x3 or all 5x5)
@@ -42,42 +42,44 @@ sweep_config = {
             # The activation used in the conv block (passed to your class as an object)
             'values': ["ReLU", "GELU", "SiLU"]
         },
+        #'batch_normalization': {
+        #    'values': ["yes","no"]
+        #},
         'dense_layer_out': {
             'values': [256,512]
         },
         
         'dense_layer_func': {
             # The activation used in the dense block (passed to your class as an object)
-            'values': ["ReLU", "Sigmoid"]
+            'values': ["Sigmoid"]
         },
         
         # Regularization/Training Hyperparameters
         'drop_out_input': {
             # Dropout applied after the flatten step, before the first dense layer
-            'values': [0.1, 0.2]
+            'values': [0.1, 0.2,0.0]
         },
         'drop_out_hidden': {
             # Dropout applied between dense layers
-            'values': [0.1, 0.2, 0.3, 0.4]
+            'values': [0.2, 0.3, 0.4]
         },
         'optimizer': {
-            'values': ['adam', 'sgd', 'rmsprop']
+            'values': ['adam'] #, 'sgd', 'rmsprop']
         },
         'learning_rate': {
-            'distribution': 'uniform',
-            'min': 0.0001,
-            'max': 0.01
+            'distribution':  'uniform' , #uniform
+            'min': 0.00001,
+            'max': 0.0001
         },
         'batch_size': {
-            'values': [32,64,128]
+            'values': [128 , 256]
         },
         
-        # --- Fixed No. of class
         'num_of_class': {
             'value': 10 
         },
         'epochs': {
-            'value': 5
+            'value': 10
         }
     }
 }
