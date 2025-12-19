@@ -1,6 +1,7 @@
 pip install wandb 
 
 import wandb
+wand_api_key = ""
 wandb.login(key=wandb_api_key)
 
 
@@ -25,7 +26,7 @@ sweep_config = {
     'method': 'bayes' ,
     
     'metric': {
-        'name': 'test_accuracy', # Track a specific metric name from your training loop
+        'name': 'val_accuracy', # Track a specific metric name from your training loop
         'goal': 'maximize'   
     },
     'parameters': {
@@ -40,7 +41,7 @@ sweep_config = {
         },
         'activation_func': {
             # The activation used in the conv block (passed to your class as an object)
-            'values': ["ReLU", "GELU", "SiLU"]
+            'values': ["GELU", "SiLU"] 
         },
         #'batch_normalization': {
         #    'values': ["yes","no"]
@@ -57,7 +58,7 @@ sweep_config = {
         # Regularization/Training Hyperparameters
         'drop_out_input': {
             # Dropout applied after the flatten step, before the first dense layer
-            'values': [0.1, 0.2,0.0]
+            'values': [0.1, 0.05]
         },
         'drop_out_hidden': {
             # Dropout applied between dense layers
@@ -72,7 +73,7 @@ sweep_config = {
             'max': 0.0001
         },
         'batch_size': {
-            'values': [128 , 256]
+            'values': [64,128]
         },
         
         'num_of_class': {
@@ -88,58 +89,8 @@ sweep_config = {
 sweep_id = wandb.sweep(sweep_config, project="CV_project")
 
 wandb.agent(sweep_id, train_test, count=10)
-test_accuracy = test_model(model , 64)
-wandb.log({"test_accuracy":test_accuracy })
-print("Test_accuracy",test_accuracy)
 
-model = None
-
-class CNNModel(nn.Module):
-    def __init__(self,
-                conv_out_channels,
-                kernel_size,     
-                dense_layer_out,
-                activation_func ,
-                dense_layer_func ,
-                num_of_class,
-                drop_out_input,
-                drop_out_hidden
-                ):
-        super(CNNModel,self).__init__()
-        
-        self.conv_layers = Sequential()
-        in_channels = 3 #RGB 
-        
-        if len(conv_out_channels) != len(kernel_size):
-            raise ValueError("Kernels and Channels length should be samex")
-        
-        pool_kernel,pool_stride, pool_pad = 2 , 2 , 0
-        
-        drop_out_ratio_input = drop_out_input or 0.1
-        self.conv_layers.add_module("dropout_input",nn.Dropout(p=drop_out_ratio_input))
-        
-        for i , (k_size,out_channels) in enumerate(zip(kernel_size , conv_out_channels)):
-            self.conv_layers.add_module(f'conv{i+1}',nn.Conv2d(in_channels,
-                                                              out_channels,
-                                                              k_size,
-                                                              padding='same'))
-            self.conv_layers.add_module(f'activ{i+1}',activation_func())
-            self.conv_layers.add_module(f'pooling{i+1}',nn.MaxPool2d(pool_kernel,
-                                                                    pool_stride))
-            self.conv_layers.add_module(f'dropout{i+1}',nn.Dropout2d(p=drop_out_hidden))
-            in_channels = out_channels
-        
-        self.dense_layers = Sequential()
-    
-        self.dense_layers.add_module("fc1",nn.LazyLinear(out_features=dense_layer_out) )
-        self.dense_layers.add_module("activ_dense", dense_layer_func())
-        self.dense_layers.add_module('output',nn.Linear(dense_layer_out ,num_of_class))
-
-    def forward(self,x):
-        x = self.conv_layers(x)
-        x = torch.flatten(x,1)
-        x = self.dense_layers(x)
-        return x
+########## Activation Function ########
 
 def get_activation_function(name):
     if name == "ReLU":
@@ -153,6 +104,7 @@ def get_activation_function(name):
     else:
         raise ValueError(f"Unknown activation function: {name}")
 
+########## Conv Out Channels ########
 
 def get_conv_out_channels(value:str):
     if value == 'same_32':
@@ -168,9 +120,12 @@ def get_conv_out_channels(value:str):
         return [32,32,32,32,32]
         
 ##########   Kernel Size   ############
+
 def get_kernel_size(k_size):
     if type(k_size):
         return [k_size,k_size,k_size,k_size,k_size]
+
+##########   Optimizer   ############
     
 def get_optimizer(model , optimizer:str,learning_rate:float):
     if optimizer == "sgd":
@@ -189,6 +144,7 @@ def get_optimizer(model , optimizer:str,learning_rate:float):
     return optimizer_fnc
 
 ##########   Dataset loader   ############
+
 def dataset(batch_size):
     
     
@@ -217,104 +173,112 @@ def dataset(batch_size):
     train_loader = DataLoader(train_dataset ,
                               batch_size=batch_size,
                               shuffle=True
+                              num_workers=3, 
+                              pin_memory=True
                              )
     val_loader = DataLoader(val_dataset ,
                               batch_size=batch_size,
                               shuffle=False
+                              num_workers=3, 
+                              pin_memory=True
                              )
     return train_loader , val_loader
 
-##########   Training Logic (with wandb agent integrated , train as well as val for each epoch)   ############
-def train_test(config=None):
-    wandb.init(config=sweep_config)
-    config = wandb.config
-    
-    model = CNNModel(conv_out_channels= get_conv_out_channels(config.conv_out_channels),
-                    kernel_size=get_kernel_size(config.kernel_size),
-                    dense_layer_out=config.dense_layer_out,
-                    activation_func= get_activation_function(config.activation_func),
-                    dense_layer_func=get_activation_function(config.dense_layer_func),
-                    num_of_class=config.num_of_class,
-                    drop_out_input=config.drop_out_input,
-                    drop_out_hidden= config.drop_out_hidden)
+###################### # integrting Pytorch Lightning 
+import pytorch_lightning as pl
+from torchmetrics import Accuracy
 
-    print(f"Model initialized with kernel size: {config.kernel_size} and dropout: {config.drop_out_hidden}")
-    model.to(device)
+class LightningCNN(pl.LightningModule):
+    def __init__(self, config):
+        super().__init__()
+        self.save_hyperparameters(config)
+
+    #architecture 
+        self.conv_layers = nn.Sequential()
+        in_channels = 3
+
+        conv_channels = get_conv_out_channels(self.hparams.conv_out_channels)
+        kernels = get_kernel_size(self.hparams.kernel_size)
+        act_fn = get_activation_function(self.hparams.activation_func)
+
+        self.conv_layers.add_module("drop_out_input" , nn.Dropout(p=self.hparams.drop_out_input))
+
+        for i ,(k_size , out_ch) in enumerate(zip(kernels , conv_channels)):
+            self.conv_layers.add_module(f'conv{i+1}', nn.Conv2d(in_channels , out_ch , padding="same"))
+            self.conv_layers.add_module(f'bn{i+1}', nn.LazyBatchNorm2d())
+            self.conv_layers.add_module(f'activ{i+1}' , act_fn())
+            self.conv_layers.add_module(f'piil{i+1}',nn.MaxPool2d(2,2))
+            self.conv_layers.add_module(f'dropout{i+1}',nn.Dropout2d(p=self.hparams.drop_out_hidden))
+            in_channels = out_ch
+
+        self.dense_layers = nn.Sequential(
+            nn.LazyLinear(out_feature = self.hparams.dense_layer_out),
+            get_activation_function(self.hparams.dense_layer_func)() ,
+            nn.Linear(self.hparams.dense_layer_out , self.hparams.num_of_class)
+        )
+
+        self.criterion = nn.CrossEntropyLoss()
+        self.train_acc = Accuracy(task = "multiclass" , num_classes=10)
+        self.val_acc = Accuracy(task = "multiclass", num_classes=10)
+
+    def forward(self,x):
+        x = self.conv_layers(x)
+        x = torch.flatten(x,1)
+        return self.dense_layers(x)
+
+    def training_step(self,batch , batch_idx):
+        x, y = batch
+        logits = self(x)
+        loss = self.criterion(logits , y)
+        self.training_acc(logits,y)
+        self.log("train_loss", loss, on_epoch=True, prog_bar=True)
+        self.log("train_acc", self.train_acc, on_epoch=True, prog_bar=True)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+        logits = self(x)
+        loss = self.criterion(logits, y)
+        self.val_acc(logits, y)
+        self.log("val_loss", loss, prog_bar=True)
+        self.log("val_accuracy",self.val_acc, prog_bar=True)
+
+    def configure_optimizer(self):
+        return get_optimizer(self , self.hparams.optimizer, self.hparams.learning_rate)
+
+def train_test():
+    run = wand_test()
+    wandb_logger = WandbLogger()
+
+    config = run.config
+
     train_loader , val_loader = dataset(config.batch_size)
-    optimizer = get_optimizer(model,config.optimizer ,config.learning_rate)
 
-    for epoch in range(config.epochs):
-        epoch_loss = train_epoch(model , train_loader , optimizer)
-        print(f'Epoch loss:{epoch_loss} ,  Epoch:{epoch+1}')
-        val_loss, val_accuracy = validate_epoch(model, val_loader)
-        #print(f" Val Loss: {val_loss:.4f} | Val Accuracy: {val_accuracy:.2f}%")
-        wandb.log({"loss": epoch_loss, "epoch": epoch+1,
-                  "val_loss": val_loss,"val_accuracy": val_accuracy})
-        
-##########   Logic For Each Epoch and Back Propagation    ############
-def train_epoch(model , train_loader , optimizer):
-    model.train()
-    running_loss = 0
-    criterion = nn.CrossEntropyLoss()
-    for batch_idx ,(images,labels) in enumerate(train_loader):
-        images,labels = images.to(device) , labels.to(device)
-        optimizer.zero_grad()
+    model = LightningCNN(dict(config))
 
-        outputs = model(images)
+    #setup trainer for pytorch lightning
+    trainer = pl.Trainer(
+        max_epochs=config.epochs,
+        accelerator="gpu",
+        devices = 1 ,
+        precision="16-mixed",
+        logger=wandb_logger,
+        enable_checkpointing=False,
+    )
+    trainer.fit(model, train_loader, val_loader)
 
-        loss = criterion(outputs ,labels)
+    #manual_clean_up
+    import gv
+    del model,trainer,train_loader, val_loader
+    gc.collect()
+    torch.cuda.empty_cache()
 
-        loss.backward()
+best_model = LightningCNN(dict(wandb.config)) 
 
-        optimizer.step()
 
-        wandb.log({"batch loss": loss.item()})
+final_trainer = pl.Trainer(accelerator="gpu", devices=1)
+final_trainer.test(best_model, dataloaders=test_loader(64))
 
-        running_loss += loss.item() * images.size(0)
-
-    epoch_loss = running_loss / len(train_loader.dataset)
-
-    return epoch_loss
-
-##########   Logic for Each epoch Validation   ############
-def validate_epoch(model, val_loader):
-    criterion = nn.CrossEntropyLoss()
-    
-
-    # This disables dropout and ensures batch norm uses running statistics
-    model.eval()
-            
-    running_loss = 0.0
-    correct_predictions = 0
-    total_predictions = 0
-        
-
-    with torch.no_grad():
-        
-        for images, labels in val_loader:
-        # Move data to the appropriate device (GPU or CPU)
-            images = images.to(device)
-            labels = labels.to(device)
-            
-            # 1. Forward pass
-            outputs = model(images)
-                        
-            # 2. Calculate the loss
-            loss = criterion(outputs, labels)
-            running_loss += loss.item() * images.size(0)
-            
-            # 3. Calculate accuracy for this batch
-
-            _, predicted = torch.max(outputs.data, 1)
-            total_predictions += labels.size(0)
-            correct_predictions += (predicted == labels).sum().item()
-        
-            # Calculate final metrics for the entire epoch
-        epoch_loss = running_loss / len(val_loader.dataset)
-        epoch_accuracy = (correct_predictions / total_predictions) * 100 
-            
-
-    return epoch_loss, epoch_accuracy
 ########################    Test Model    
 
 def test_model(model ,batch_size):
@@ -353,87 +317,3 @@ def test(model , test_loader):
 
     return test_accuracy
         
-########################################################
-############### Testing Code of Model ##################
-'''
-TRIED Some Test If model is learning in small dataset and if model's getting right dataset with right class.
-Here is Modified train function for This Testing 
-'''
-def overfit_dataset(batch_size):
-    
-    
-    transform = transforms.Compose([
-            transforms.Resize((224,224)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=(0.5,0.5,0.5), std=(0.5,0.5,0.5))
-        ])
-    DATA_DIR = '/kaggle/input/subset-of-original-data/i_nature_sample' 
-    #TRAIN_DIR = os.path.join(DATA_DIR, 'train')
-    TEST_DIR = os.path.join(DATA_DIR, 'test')
-    
-    full_train_dataset = ImageFolder(root=TEST_DIR,transform=transform)
-
-    
-    #20 % for validation
-    #train_size = int(0.8 * len(full_train_dataset))
-    #val_size = math.ceil(0.2 * len(full_train_dataset))
-    
-    #torch.manual_seed(42)
-    #train_dataset , val_dataset = random_split(
-    #   full_train_dataset,
-    #    [train_size , val_size]
-    #)
-    
-    train_loader = DataLoader(full_train_dataset ,
-                              batch_size=batch_size,
-                              shuffle=True
-                             )
-    val_loader = DataLoader(full_train_dataset ,
-                              batch_size=batch_size,
-                              shuffle=False
-                             )
-    return train_loader , val_loader
-    
-def train(): #without wandb 
-    optimizer = 'adam'
-    train_loader , val_loader = overfit_dataset(32)
-    optimizer = get_optimizer(model, optimizer ,0.0001)
-    
-    for i in range(50):
-        avg_loss = train_epoch(model , train_loader , optimizer)
-        print('epoch_loss:',avg_loss)
-        val_loss, val_accuracy = validate_epoch(model, val_loader)
-        print(f" Val Loss: {val_loss:.4f} | Val Accuracy: {val_accuracy:.2f}%")
-        #print(f"loss: {avg_loss}, epoch: {i+1},val_loss: {val_loss},val_accuracy: {val_accuracy}")
-
-# %% [code] {"execution":{"iopub.status.busy":"2025-12-12T16:51:24.121615Z","iopub.execute_input":"2025-12-12T16:51:24.122181Z","iopub.status.idle":"2025-12-12T16:57:13.740671Z","shell.execute_reply.started":"2025-12-12T16:51:24.122157Z","shell.execute_reply":"2025-12-12T16:57:13.739955Z"}}
-train()
-
-# %% [code] {"execution":{"iopub.status.busy":"2025-12-12T16:23:15.437228Z","iopub.execute_input":"2025-12-12T16:23:15.437865Z","iopub.status.idle":"2025-12-12T16:23:15.455568Z","shell.execute_reply.started":"2025-12-12T16:23:15.437837Z","shell.execute_reply":"2025-12-12T16:23:15.455033Z"}}
-model_para = model.parameters()
-'''
-model = CNNModel(
-    conv_out_channels=get_conv_out_channels("same_64") ,
-    kernel_size= get_kernel_size(3),
-    dense_layer_out=512,
-    activation_func=nn.ReLU,
-    dense_layer_func=nn.Sigmoid,
-    num_of_class=10,
-    drop_out_input=0.1,
-    drop_out_hidden=0.2
-).to(device)
-'''
-param_dir = "/kaggle/working/model_parameters"
-os.makedirs(param_dir, exist_ok=True)
-param_path = os.path.join(param_dir, "same_54_k3.pth")
-
-# Save only the parameters (state_dict)
-torch.save(model.state_dict(), param_path)
-
-# %% [code] {"execution":{"iopub.status.busy":"2025-12-12T16:46:28.196417Z","iopub.execute_input":"2025-12-12T16:46:28.197388Z","iopub.status.idle":"2025-12-12T16:46:28.216476Z","shell.execute_reply.started":"2025-12-12T16:46:28.197360Z","shell.execute_reply":"2025-12-12T16:46:28.215862Z"}}
-#overfit data #small val_data 35% accuracy
-torch.save(model.state_dict(),param_path)
-
-# %% [code] {"execution":{"iopub.status.busy":"2025-12-12T16:58:28.433807Z","iopub.execute_input":"2025-12-12T16:58:28.434623Z","iopub.status.idle":"2025-12-12T16:58:28.438020Z","shell.execute_reply.started":"2025-12-12T16:58:28.434596Z","shell.execute_reply":"2025-12-12T16:58:28.437229Z"}}
-#one more overfit data (only test data small data to see if dataset function is correct )
-#(99% accuracy ) ran it for 50 epochs . removed Horizontal flip from transform 
