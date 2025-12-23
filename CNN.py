@@ -1,4 +1,5 @@
-pip install wandb 
+!pip install wandb 
+!pip install lightning
 
 import wandb
 wand_api_key = ""
@@ -15,6 +16,7 @@ from torchvision import transforms
 from torch.nn import Sequential , LazyLinear
 from torchvision.datasets import ImageFolder
 import math
+import gc
 
 
 # **1 . Build a small CNN model consisting of 555 convolution layers. Each convolution layer would be followed by an activation and a max-pooling layer.2 . After 5 such conv-activation-maxpool blocks, you should have one dense layer followed by the output layer containing 10  neurons (1 for each of the 10 classes). 3 . The input layer should be compatible with the images in the iNaturalist dataset dataset.4 . The code should be flexible such that the number of filters, size of filters, and activation function of the convolution layers  and dense layers can be changed. You should also be able to change the number of neurons in the dense layer.**
@@ -33,11 +35,11 @@ sweep_config = {
         # --- Model Architecture: Convolutional Layers ---
         'conv_out_channels': {
             # Defines how 'base_filters' scale (your script must handle this logic)
-            'values': [ 'same_64', 'same_128', 'double_from_64','double_from_128']
+            'values': ['same_128', 'double_from_64','double_from_128'] #'same_64',
         },
         'kernel_size': {
             # Allows sweeping a single kernel size used across all layers (e.g. all 3x3 or all 5x5)
-            'values': [3, 5] 
+            'values': [5 , 7] 
         },
         'activation_func': {
             # The activation used in the conv block (passed to your class as an object)
@@ -73,7 +75,7 @@ sweep_config = {
             'max': 0.0001
         },
         'batch_size': {
-            'values': [64,128]
+            'values': [64] #causig memory crash
         },
         
         'num_of_class': {
@@ -106,19 +108,19 @@ def get_activation_function(name):
 
 ########## Conv Out Channels ########
 
+conv_out_channel_type = [ 'same_64', 'same_128', 'double_from_64','double_from_128']
 def get_conv_out_channels(value:str):
-    if value == 'same_32':
-        return [32,32,32,32,32]
+    if value == 'double_from_128':
+        return [128,256,512,1024,2048]
     elif value == 'same_64':
         return [64,64,64,64,64]
-    elif value == 'double_from_16':
-        return [16,32,64,128,256]
-    elif value == 'double_from_32':
-        return [32,64,128,256,512]
+    elif value == 'same_128':
+        return [128,128,128,128,128]
+    elif value == 'double_from_64':
+        return [64,128,256,512,1024]
     else:
-        print("Using 32 for all the Layers")
-        return [32,32,32,32,32]
-        
+        print("Using 64 for all the Layers")
+        return [64,64,64,64,64]        
 ##########   Kernel Size   ############
 
 def get_kernel_size(k_size):
@@ -245,31 +247,55 @@ class LightningCNN(pl.LightningModule):
 
     def configure_optimizer(self):
         return get_optimizer(self , self.hparams.optimizer, self.hparams.learning_rate)
+from pytorch_lightning.callbacks import ModelCheckpoint
 
 def train_test():
-    run = wand_test()
-    wandb_logger = WandbLogger()
-
+    # 1. Initialize W&B run
+    run = wandb.init(reinit=True)
+    wandb_logger = WandbLogger(experiment=run, log_model="all")
+    
+    # Get config from W&B
     config = run.config
-
-    train_loader , val_loader = dataset(config.batch_size)
-
+    
+    # Setup Data
+    train_loader, val_loader = dataset(config.batch_size)
+    
+    # Initialize Model
     model = LightningCNN(dict(config))
-
-    #setup trainer for pytorch lightning
+    
+    # 2. Define Checkpoint Callback
+    # Using run.dir ensures the .ckpt is uploaded to the 'Files' tab automatically
+    checkpoint_callback = ModelCheckpoint(
+        dirpath=os.path.join(run.dir, "checkpoints"), 
+        monitor='val_accuracy',
+        mode='max',
+        save_top_k=2,
+        filename='best-model-{epoch:02d}-{val_accuracy:.2f}',
+        auto_insert_metric_name=False # Makes the filename cleaner
+    )
+    
+    # 3. Setup Trainer
     trainer = pl.Trainer(
         max_epochs=config.epochs,
         accelerator="gpu",
-        devices = 1 ,
-        precision="16-mixed",
+        devices=1,
+        precision="16-mixed",  
         logger=wandb_logger,
-        enable_checkpointing=False,
+        enable_checkpointing=True,
+        callbacks=[checkpoint_callback],
     )
+    
+    # 4. Train
     trainer.fit(model, train_loader, val_loader)
-
-    #manual_clean_up
-    import gv
-    del model,trainer,train_loader, val_loader
+    
+    # 5. Log the best model path & score to the W&B summary for easy filtering
+    run.summary["best_model_path"] = checkpoint_callback.best_model_path
+    if checkpoint_callback.best_model_score is not None:
+        run.summary["best_val_acc"] = checkpoint_callback.best_model_score.item()
+    # 6. Cleanup to prevent OOM (Out of Memory) in long sweeps
+    run.finish() # Finish first to ensure files are synced
+    
+    del model, trainer, train_loader, val_loader
     gc.collect()
     torch.cuda.empty_cache()
 
