@@ -88,10 +88,6 @@ sweep_config = {
 }
 
 
-sweep_id = wandb.sweep(sweep_config, project="CV_project")
-
-wandb.agent(sweep_id, train_test, count=10)
-
 ########## Activation Function ########
 
 def get_activation_function(name):
@@ -343,3 +339,44 @@ def test(model , test_loader):
 
     return test_accuracy
         
+##########################
+   #      sweep   # 
+sweep_id = wandb.sweep(sweep_config, project="CV_project")
+
+wandb.agent(sweep_id, train_test, count=10)
+#########################
+  #     Test     #
+
+import wandb
+import os
+import glob
+
+api = wandb.Api()
+
+# 1. Get the Best Run
+sweep = api.sweep(f"nakupatel-indus-university/CV_project/{sweep_id}")
+best_run = sweep.best_run()
+print(f"Fetching Best Run: {best_run.id}")
+
+# 2. Access the Artifact directly # best of sweep configuration are being downloaded and loaded
+artifact_path = f"nakupatel-indus-university/CV_project/model-{best_run.id}:best"
+
+
+print(f"Downloading artifact: {artifact_path}")
+artifact = api.artifact(artifact_path)
+download_path = artifact.download()
+    
+# 3. Find the file in the downloaded folder
+ckpt_files = glob.glob(os.path.join(download_path, "**/*.ckpt"), recursive=True)
+    
+if not ckpt_files:
+    raise FileNotFoundError(f"Artifact downloaded to {download_path} but no .ckpt found.")
+    
+model_path = ckpt_files[0]
+print(f"Successfully located checkpoint: {model_path}")
+
+best_model = LightningCNN.load_from_checkpoint(model_path)
+trainer = pl.Trainer(accelerator="auto",logger=False, devices=1)
+test_results = trainer.test(model=best_model, dataloaders=test_loader(64))
+
+print(test_results)
