@@ -304,11 +304,6 @@ final_trainer.test(best_model, dataloaders=test_loader(64))
 
 ########################    Test Model    
 
-def test_model(model ,batch_size):
-    loader = test_loader(batch_size)
-    accuracy = test(model ,loader)
-    return accuracy
-
 def test_loader(batch_size):
     DATA_DIR = '/kaggle/input/subset-of-original-data/i_nature_sample'
     TEST_DIR = os.path.join(DATA_DIR, 'test')
@@ -317,29 +312,6 @@ def test_loader(batch_size):
                             batch_size = batch_size,
                             shuffle = False)
     return test_loader
-
-def test(model , test_loader):
-    model.eval()
-    correct_pred = 0
-    total_pred = 0
-    
-    with torch.no_grad():
-        for images ,labels in test_loader:
-            images , labels = images.to(device) , labels.to(device)
-
-            outputs = model(images)
-            criterion = nn.CrossEntropyLoss()
-
-            loss = criterion(outputs , labels)
-            _ , predicted = torch.max(outputs.data , 1)
-
-            correct_pred += (predicted == labels).sum().item()
-            total_pred += labels.size(0)
-        
-    test_accuracy = 100 * correct_pred /total_pred
-
-    return test_accuracy
-        
 ##########################
    #      sweep   # 
 sweep_id = wandb.sweep(sweep_config, project="CV_project")
@@ -379,5 +351,8 @@ print(f"Successfully located checkpoint: {model_path}")
 best_model = LightningCNN.load_from_checkpoint(model_path)
 trainer = pl.Trainer(accelerator="auto",logger=False, devices=1)
 test_results = trainer.test(model=best_model, dataloaders=test_loader(64))
-
+raw_acc = test_results[0]['test_acc']
+acc_percent = raw_acc * 100
+    
+print(f"Final Test Accuracy: {acc_percent:.2f}%")
 print(test_results)
