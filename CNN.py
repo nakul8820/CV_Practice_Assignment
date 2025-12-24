@@ -2,6 +2,7 @@
 !pip install lightning
 
 import wandb
+from lightning.pytorch.loggers import WandbLogger
 wand_api_key = ""
 wandb.login(key=wandb_api_key)
 
@@ -39,7 +40,7 @@ sweep_config = {
         },
         'kernel_size': {
             # Allows sweeping a single kernel size used across all layers (e.g. all 3x3 or all 5x5)
-            'values': [5 , 7] 
+            'values': [3,5] 
         },
         'activation_func': {
             # The activation used in the conv block (passed to your class as an object)
@@ -183,11 +184,22 @@ def dataset(batch_size):
                              )
     return train_loader , val_loader
 
+########################    Test Loader    
+
+def test_loader(batch_size):
+    DATA_DIR = '/kaggle/input/subset-of-original-data/i_nature_sample'
+    TEST_DIR = os.path.join(DATA_DIR, 'test')
+    test_dataset = ImageFolder(root=TEST_DIR)
+    test_loader = DataLoader(test_dataset , 
+                            batch_size = batch_size,
+                            shuffle = False)
+    return test_loader
+
 ###################### # integrting Pytorch Lightning 
-import pytorch_lightning as pl
+from lightning.pytorch import LightningModule
 from torchmetrics import Accuracy
 
-class LightningCNN(pl.LightningModule):
+class LightningCNN(LightningModule):
     def __init__(self, config):
         super().__init__()
         self.save_hyperparameters(config)
@@ -211,7 +223,7 @@ class LightningCNN(pl.LightningModule):
             in_channels = out_ch
 
         self.dense_layers = nn.Sequential(
-            nn.LazyLinear(out_feature = self.hparams.dense_layer_out),
+            nn.LazyLinear(out_features = self.hparams.dense_layer_out),
             get_activation_function(self.hparams.dense_layer_func)() ,
             nn.Linear(self.hparams.dense_layer_out , self.hparams.num_of_class)
         )
@@ -242,9 +254,48 @@ class LightningCNN(pl.LightningModule):
         self.log("val_loss", loss, prog_bar=True)
         self.log("val_accuracy",self.val_acc, prog_bar=True)
 
+    def test_step(self, batch, batch_idx):
+        x, y = batch
+        logits = self(x)
+        loss = F.cross_entropy(logits, y)
+        # Calculate Accuracy
+        preds = torch.argmax(logits, dim=1)
+        acc = (preds == y).float().mean()
+        self.log("test_loss", loss, on_step=False, on_epoch=True)
+        self.log("test_acc", acc, on_step=False, on_epoch=True)
+        return loss
+
     def configure_optimizer(self):
         return get_optimizer(self , self.hparams.optimizer, self.hparams.learning_rate)
+
+
 from pytorch_lightning.callbacks import ModelCheckpoint
+import lightning.pytorch as pl
+from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
+
+class PeriodicMemoryCleanup(pl.Callback):
+    def on_train_epoch_end(self, trainer, pl_module):
+        # trainer.current_epoch is 0-indexed. 
+        # This triggers after epoch 4, 9, 14, etc. (every 5 epochs)
+        if (trainer.current_epoch + 1) % 5 == 0:
+            gc.collect()
+            torch.cuda.empty_cache()
+            print(f"--- Memory cleared at end of epoch {trainer.current_epoch + 1} ---")
+
+early_stop_val_acc = EarlyStopping(
+                                    monitor='val_accuracy',
+                                    patience=5,
+                                    mode='max',
+                                    verbose=True
+                                    )
+
+# 2. Stop if training loss stops decreasing (prevents excessive memorization)
+early_stop_train_loss = EarlyStopping(
+                                    monitor='train_loss',
+                                    patience=10, # Often a higher patience for training loss is better
+                                    mode='min',
+                                    verbose=True
+                                    )
 
 def train_test():
     # 1. Initialize W&B run
@@ -279,7 +330,10 @@ def train_test():
         precision="16-mixed",  
         logger=wandb_logger,
         enable_checkpointing=True,
-        callbacks=[checkpoint_callback],
+        callbacks=[checkpoint_callback,
+                  early_stop_val_acc, 
+                   early_stop_train_loss,
+                   PeriodicMemoryCleanup()],
     )
     
     # 4. Train
@@ -302,16 +356,7 @@ best_model = LightningCNN(dict(wandb.config))
 final_trainer = pl.Trainer(accelerator="gpu", devices=1)
 final_trainer.test(best_model, dataloaders=test_loader(64))
 
-########################    Test Model    
 
-def test_loader(batch_size):
-    DATA_DIR = '/kaggle/input/subset-of-original-data/i_nature_sample'
-    TEST_DIR = os.path.join(DATA_DIR, 'test')
-    test_dataset = ImageFolder(root=TEST_DIR)
-    test_loader = DataLoader(test_dataset , 
-                            batch_size = batch_size,
-                            shuffle = False)
-    return test_loader
 ##########################
    #      sweep   # 
 sweep_id = wandb.sweep(sweep_config, project="CV_project")
