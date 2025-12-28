@@ -282,79 +282,66 @@ class PeriodicMemoryCleanup(pl.Callback):
             torch.cuda.empty_cache()
             print(f"--- Memory cleared at end of epoch {trainer.current_epoch + 1} ---")
 
-early_stop_val_acc = EarlyStopping(
+def train_test():
+    # 1. Initialize W&B run
+    run = wandb.init(reinit=True)
+    wandb_logger = WandbLogger(experiment=run, log_model= None) #None To Stop Intermediate Saving 
+    
+    #2 . early stopping Callbacks 
+    early_stop_val_acc = EarlyStopping(
                                     monitor='val_accuracy',
                                     patience=5,
                                     mode='max',
                                     verbose=True
                                     )
 
-# 2. Stop if training loss stops decreasing (prevents excessive memorization)
-early_stop_train_loss = EarlyStopping(
+    # 2. Stop if training loss stops decreasing (prevents excessive memorization)
+    early_stop_train_loss = EarlyStopping(
                                     monitor='train_loss',
                                     patience=10, # Often a higher patience for training loss is better
                                     mode='min',
                                     verbose=True
                                     )
-
-def train_test():
-    # 1. Initialize W&B run
-    run = wandb.init(reinit=True)
-    wandb_logger = WandbLogger(experiment=run, log_model="all")
     
-    # Get config from W&B
+    #3. Get config from W&B and Prepare Data And Model
     config = run.config
-    
     # Setup Data
     train_loader, val_loader = dataset(config.batch_size)
-    
     # Initialize Model
     model = LightningCNN(dict(config))
     
-    # 2. Define Checkpoint Callback
-    # Using run.dir ensures the .ckpt is uploaded to the 'Files' tab automatically
-    checkpoint_callback = ModelCheckpoint(
-        dirpath=os.path.join(run.dir, "checkpoints"), 
-        monitor='val_accuracy',
-        mode='max',
-        save_top_k=2,
-        filename='best-model-{epoch:02d}-{val_accuracy:.2f}',
-        auto_insert_metric_name=False # Makes the filename cleaner
-    )
-    
-    # 3. Setup Trainer
+    # 4. Setup Trainer
     trainer = pl.Trainer(
         max_epochs=config.epochs,
         accelerator="gpu",
         devices=1,
         precision="16-mixed",  
         logger=wandb_logger,
-        enable_checkpointing=True,
+        enable_checkpointing=False, 
         callbacks=[checkpoint_callback,
                   early_stop_val_acc, 
                    early_stop_train_loss,
                    PeriodicMemoryCleanup()],
     )
     
-    # 4. Train
+    # 5. Train
     trainer.fit(model, train_loader, val_loader)
     
-    # 5. Log the best model path & score to the W&B summary for easy filtering
-    run.summary["best_model_path"] = checkpoint_callback.best_model_path
-    if checkpoint_callback.best_model_score is not None:
-        run.summary["best_val_acc"] = checkpoint_callback.best_model_score.item()
-    # 6. Cleanup to prevent OOM (Out of Memory) in long sweeps
-    run.finish() # Finish first to ensure files are synced
+    # 6. Save parameters only at the end 
+    final_model_name = f"final_model_{run.id}.ckpt"
+    trainer.save_checkpoint(final_model_name)
     
+    #sync to w&b cloud (if kaggle session expires)
+    run.save(final_model_name)
+    
+    # 7. Cleanup to prevent OOM (Out of Memory) in long sweeps
+    run.finish() # Finish first to ensure files are synced
+    if os.path.exists(final_model_name):
+        os.remove(final_model_name)
+        
     del model, trainer, train_loader, val_loader
     gc.collect()
     torch.cuda.empty_cache()
-
-best_model = LightningCNN(dict(wandb.config)) 
-
-
-final_trainer = pl.Trainer(accelerator="gpu", devices=1)
-final_trainer.test(best_model, dataloaders=test_loader(64))
 
 
 ##########################
@@ -401,3 +388,77 @@ acc_percent = raw_acc * 100
     
 print(f"Final Test Accuracy: {acc_percent:.2f}%")
 print(test_results)
+
+############ Resume Training Logic
+
+import wandb
+import os
+import lightning.pytorch as pl
+from lightning.pytorch.loggers import WandbLogger
+
+api = wandb.Api()
+
+# 1. Access the Project (Fixed potential space issue)
+entity = "nakupatel-indus-university"
+project = "CV_project" # Ensure no trailing spaces here
+run_id = "g2oezueh"    # Using the Run ID directly is safer than sweep.best_run()
+
+best_run = api.run(f"{entity}/{project}/{run_id}")
+print(f"Resuming Run ID: {best_run.id} | Previous Accuracy: {best_run.summary.get('val_accuracy')}")
+
+# 2.  Download (Finds the file even if path is complex)
+target_filename = "epoch=39-step=5000.ckpt"
+run_files = best_run.files()
+matching_files = [f for f in run_files if target_filename in f.name]
+
+if matching_files:
+    print(f"✅ Found match: {matching_files[0].name}. Downloading...")
+    file_handle = matching_files[0].download(replace=True)
+    model_path = file_handle.name 
+else:
+    print("❌ File not found. Listing all available files:")
+    for f in run_files: print(f"- {f.name}")
+    raise FileNotFoundError(f"Could not find {target_filename}")
+
+best_config = best_run.config 
+
+# 3. Setup W&B Logger
+wandb_logger = WandbLogger(
+    project=project,
+    entity=entity,
+    id=best_run.id, 
+    resume="must"
+)
+
+# 4. Initialize Data and Model
+# Ensure your dataset function returns (train, val, test)
+train_loader, val_loader = dataset(64) 
+test_loader = test_loader(64)
+model = LightningCNN(config=best_config) 
+
+trainer = pl.Trainer(
+    accelerator="gpu", 
+    devices=1, 
+    logger=wandb_logger,
+    max_epochs=50, # Training will go from epoch 40 to 50
+    precision="16-mixed",
+    enable_checkpointing=True, 
+)
+
+# 5. Resume Training
+trainer.fit(
+    model=model, 
+    train_dataloaders=train_loader, 
+    val_dataloaders=val_loader,
+    ckpt_path=model_path
+)
+
+# 6. Evaluate on the Test Set
+print("--- Starting Test Evaluation ---")
+test_results = trainer.test(model=model, dataloaders=test_loader)
+
+# 7. Final Sync
+if trainer.checkpoint_callback.best_model_path:
+    wandb.save(trainer.checkpoint_callback.best_model_path)
+    
+wandb.finish()
